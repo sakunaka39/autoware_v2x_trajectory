@@ -6,10 +6,14 @@
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include "autoware_auto_perception_msgs/msg/predicted_objects.hpp"
+#include "autoware_auto_planning_msgs/msg/trajectory.hpp"
+#include "autoware_auto_planning_msgs/msg/trajectory_point.hpp"
 #include "autoware_v2x/positioning.hpp"
 #include <vanetza/asn1/cpm.hpp>
+#include <optional>
+#include <mutex>
 
-namespace v2x
+namespace v2x_trajectory
 {
     class V2XNode;
     class CpmApplication : public Application
@@ -17,29 +21,16 @@ namespace v2x
     public:
         CpmApplication(V2XNode *node, vanetza::Runtime &, bool is_sender);
         PortType port() override;
-        std::string uuidToHexString(const unique_identifier_msgs::msg::UUID&);
         void indicate(const DataIndication &, UpPacketPtr) override;
         void set_interval(vanetza::Clock::duration);
-        void setAllObjectsOfPersonsAnimalsToSend(const autoware_auto_perception_msgs::msg::PredictedObjects::ConstSharedPtr);
-        void updateObjectsList(const autoware_auto_perception_msgs::msg::PredictedObjects::ConstSharedPtr);
+        
+        // 自車位置や向きを更新するための関数
         void updateMGRS(double *, double *);
         void updateRP(double *, double *, double *);
-        void updateGenerationTime(int *, long *);
+        void updateGenerationDeltaTime(int *, long long *);
         void updateHeading(double *);
-        void printObjectsList(int);
-        void send();
 
-        /** Creates the database schema.
-         *  Creates tables for cpm_sent, cpm_received
-        */
-        void createTables();
-
-        /** Inserts CPM into the database.
-         *  Constructs and executes queries for inserting the specified CPM data.
-         *  @param cpm The CPM to be inserted 
-         *  @param table_name The table to insert the CPM into (cpm_sent or cpm_received)
-        */
-        void insertCpmToCpmTable(vanetza::asn1::Cpm, char*);
+        void updateTrajectory(const autoware_auto_planning_msgs::msg::Trajectory::ConstSharedPtr&);
 
         struct Object {
             std::string uuid;
@@ -70,17 +61,19 @@ namespace v2x
             bool to_send;
             int to_send_trigger;
         };
-        std::vector<CpmApplication::Object> objectsList;
-        std::vector<CpmApplication::Object> receivedObjectsStack;
 
     private:
         void schedule_timer();
         void on_timer(vanetza::Clock::time_point);
+        void send();
+        void createTables();
+        void insertCpmToCpmTable(vanetza::asn1::Cpm, char*);
 
         V2XNode *node_;
         vanetza::Runtime &runtime_;
         vanetza::Clock::duration cpm_interval_;
 
+        // 自車の状態を保持する構造体
         struct Ego_station {
             double mgrs_x;
             double mgrs_y;
@@ -89,26 +82,20 @@ namespace v2x
             double altitude;
             double heading;
         };
-
         Ego_station ego_;
+
+        // 経路情報を保持するメンバ変数を追加
+        std::optional<autoware_auto_planning_msgs::msg::Trajectory> latest_trajectory_;
+        std::mutex trajectory_mutex_; 
         
-        int generationTime_;
-        long gdt_timestamp_;
+        int generationDeltaTime_;
+        long long gdt_timestamp_;
 
-        double objectConfidenceThreshold_;
-
-        bool updating_objects_list_;
         bool sending_;
         bool is_sender_;
         bool reflect_packet_;
-        bool include_all_persons_and_animals_;
-
         int cpm_num_;
         int received_cpm_num_;
-
-        int cpm_object_id_;
-
-        bool use_dynamic_generation_rules_;
     };
 }
 

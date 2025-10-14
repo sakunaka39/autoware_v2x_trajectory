@@ -26,23 +26,23 @@ namespace gn = vanetza::geonet;
 using namespace vanetza;
 using namespace std::chrono;
 
-namespace v2x
+namespace v2x_trajectory
 {
   V2XApp::V2XApp(V2XNode *node) : 
     node_(node),
     tf_received_(false),
     tf_interval_(0),
-    cp_started_(false)
+    app_started_(false)
   {
   }
 
-  void V2XApp::objectsCallback(const autoware_auto_perception_msgs::msg::PredictedObjects::ConstSharedPtr msg) {
-    // RCLCPP_INFO(node_->get_logger(), "V2XApp: msg received");
-    if (!tf_received_) {
-      RCLCPP_WARN(node_->get_logger(), "[V2XApp::objectsCallback] tf not received yet");
-    }
-    if (tf_received_ && cp_started_) {
-      cp->updateObjectsList(msg);
+  void V2XApp::trajectoryCallback(const autoware_auto_planning_msgs::msg::Trajectory::ConstSharedPtr msg) {
+    if (tf_received_ && app_started_ && cp) {
+        bool is_sender;
+        node_->get_parameter("is_sender", is_sender);
+        if (is_sender) {
+            cp->updateTrajectory(msg);
+        }
     }
   }
 
@@ -54,10 +54,10 @@ namespace v2x
     double y = msg->transforms[0].transform.translation.y;
     double z = msg->transforms[0].transform.translation.z;
 
-    long timestamp_sec = msg->transforms[0].header.stamp.sec; // seconds
-    long timestamp_nsec = msg->transforms[0].header.stamp.nanosec; // nanoseconds
+    long long timestamp_sec = msg->transforms[0].header.stamp.sec; // seconds
+    long long timestamp_nsec = msg->transforms[0].header.stamp.nanosec; // nanoseconds
     timestamp_sec -= 1072915200; // convert to etsi-epoch
-    long timestamp_msec = timestamp_sec * 1000 + timestamp_nsec / 1000000;
+    long long timestamp_msec = timestamp_sec * 1000 + timestamp_nsec / 1000000;
     int gdt = timestamp_msec % 65536;
 
     double rot_x = msg->transforms[0].transform.rotation.x;
@@ -88,11 +88,11 @@ namespace v2x
       lon
     );
     
-    if (cp && cp_started_) {
+    if (cp && app_started_) {
       cp->updateMGRS(&x, &y);
       cp->updateRP(&lat, &lon, &z);
       cp->updateHeading(&yaw);
-      cp->updateGenerationTime(&gdt, &timestamp_msec);
+      cp->updateGenerationDeltaTime(&gdt, &timestamp_msec);
     }
   }
 
@@ -113,7 +113,6 @@ namespace v2x
     sout << mac_address;
     RCLCPP_INFO(node_->get_logger(), "MAC Address: '%s'", sout.str().c_str());
 
-    // Geonetworking Management Infirmation Base (MIB) defines the GN protocol constants.
     gn::MIB mib;
     mib.itsGnLocalGnAddr.mid(mac_address);
     mib.itsGnLocalGnAddr.is_manually_configured(true);
@@ -121,21 +120,21 @@ namespace v2x
     mib.itsGnSecurity = false;
     mib.itsGnProtocolVersion = 1;
 
-    // Create raw socket on device and LinkLayer object
     auto link_layer =  create_link_layer(io_service, device, "ethernet");
     auto positioning = create_position_provider(io_service, trigger.runtime());
     auto security = create_security_entity(trigger.runtime(), *positioning);
+    
     RouterContext context(mib, trigger, *positioning, security.get());
-
     context.set_link_layer(link_layer.get());
 
     bool is_sender;
     node_->get_parameter("is_sender", is_sender);
+
     cp = new CpmApplication(node_, trigger.runtime(), is_sender);
     
     context.enable(cp);
 
-    cp_started_ = true;
+    app_started_ = true;
 
     io_service.run();
   }

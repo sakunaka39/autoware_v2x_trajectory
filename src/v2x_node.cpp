@@ -26,16 +26,16 @@ namespace gn = vanetza::geonet;
 using namespace vanetza;
 using namespace std::chrono;
 
-namespace v2x
+namespace v2x_trajectory
 {
   V2XNode::V2XNode(const rclcpp::NodeOptions &node_options) : rclcpp::Node("autoware_v2x_node", node_options) {
     using std::placeholders::_1;
 
-    objects_sub_ = this->create_subscription<autoware_auto_perception_msgs::msg::PredictedObjects>("/perception/object_recognition/objects", 10, std::bind(&V2XNode::objectsCallback, this, _1));
+    trajectory_sub_ = this->create_subscription<autoware_auto_planning_msgs::msg::Trajectory>("/planning/scenario_planning/trajectory", 10, std::bind(&V2XNode::trajectoryCallback, this, _1));
     tf_sub_ = this->create_subscription<tf2_msgs::msg::TFMessage>("/tf", 10, std::bind(&V2XNode::tfCallback, this, _1));
 
-    cpm_objects_pub_ = create_publisher<autoware_auto_perception_msgs::msg::PredictedObjects>("/v2x/cpm/objects", rclcpp::QoS{10});
-    // cpm_sender_pub_ = create_publisher<autoware_auto_perception_msgs::msg::PredictedObjects>("/v2x/cpm/sender", rclcpp::QoS{10});
+    received_trajectory_pub_ = create_publisher<autoware_auto_planning_msgs::msg::Trajectory>("/v2x/cpm/trajectory", rclcpp::QoS{10});
+    cpm_sender_pub_ = create_publisher<autoware_auto_perception_msgs::msg::PredictedObjects>("/v2x/cpm/sender", rclcpp::QoS{10});
 
     // Declare Parameters
     this->declare_parameter<std::string>("network_interface", "vmnet1");
@@ -97,68 +97,16 @@ namespace v2x
 
     cpm_sender_object_msg.objects.push_back(object);
 
-    // publisher_v2x_cpm_sender_->publish(cpm_sender_object_msg);
+    cpm_sender_pub_->publish(cpm_sender_object_msg);
 
   }
 
-  void V2XNode::publishObjects(std::vector<CpmApplication::Object> *objectsStack, int cpm_num) {
-    autoware_auto_perception_msgs::msg::PredictedObjects output_dynamic_object_msg;
-    std_msgs::msg::Header header;
-    rclcpp::Time current_time = this->now();
-    output_dynamic_object_msg.header.frame_id = "map";
-    output_dynamic_object_msg.header.stamp = current_time;
-
-    for (CpmApplication::Object obj : *objectsStack) {
-      autoware_auto_perception_msgs::msg::PredictedObject object;
-      autoware_auto_perception_msgs::msg::ObjectClassification classification;
-      autoware_auto_perception_msgs::msg::Shape shape;
-      autoware_auto_perception_msgs::msg::PredictedObjectKinematics kinematics;
-
-      classification.label = autoware_auto_perception_msgs::msg::ObjectClassification::CAR;
-      classification.probability = 0.99;
-
-      shape.type = autoware_auto_perception_msgs::msg::Shape::BOUNDING_BOX;
-      shape.dimensions.x = obj.shape_x / 10.0;
-      shape.dimensions.y = obj.shape_y / 10.0;
-      shape.dimensions.z = obj.shape_z / 10.0;
-
-      kinematics.initial_pose_with_covariance.pose.position.x = obj.position_x;
-      kinematics.initial_pose_with_covariance.pose.position.y = obj.position_y;
-      kinematics.initial_pose_with_covariance.pose.position.z = 0.1;
-
-      kinematics.initial_pose_with_covariance.pose.orientation.x = obj.orientation_x;
-      kinematics.initial_pose_with_covariance.pose.orientation.y = obj.orientation_y;
-      kinematics.initial_pose_with_covariance.pose.orientation.z = obj.orientation_z;
-      kinematics.initial_pose_with_covariance.pose.orientation.w = obj.orientation_w;
-
-      object.classification.emplace_back(classification);
-      object.shape = shape;
-      object.kinematics = kinematics;
-
-      std::mt19937 gen(std::random_device{}());
-      std::independent_bits_engine<std::mt19937, 8, uint8_t> bit_eng(gen);
-      std::generate(object.object_id.uuid.begin(), object.object_id.uuid.end(), bit_eng);
-
-      output_dynamic_object_msg.objects.push_back(object);
-    }
-
-    std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds> (
-      std::chrono::system_clock::now().time_since_epoch()
-    );
-    latency_log_file << "T_publish," << cpm_num << "," << ms.count() << std::endl;
-
-    cpm_objects_pub_->publish(output_dynamic_object_msg);
+  void V2XNode::publishTrajectory(const autoware_auto_planning_msgs::msg::Trajectory& msg) {
+    received_trajectory_pub_->publish(msg);
   }
 
-  void V2XNode::objectsCallback(const autoware_auto_perception_msgs::msg::PredictedObjects::ConstSharedPtr msg) {
-    rclcpp::Time msg_time = msg->header.stamp; // timestamp included in the Autoware Perception Msg.
-
-    std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds> (
-      std::chrono::system_clock::now().time_since_epoch()
-    );
-    latency_log_file << "T_rosmsg,," << ms.count() << std::endl;
-
-    app->objectsCallback(msg);
+  void V2XNode::trajectoryCallback(const autoware_auto_planning_msgs::msg::Trajectory::ConstSharedPtr msg) {
+    app->trajectoryCallback(msg);
   }
 
   void V2XNode::tfCallback(const tf2_msgs::msg::TFMessage::ConstSharedPtr msg) {
@@ -167,4 +115,4 @@ namespace v2x
 }
 
 #include "rclcpp_components/register_node_macro.hpp"
-RCLCPP_COMPONENTS_REGISTER_NODE(v2x::V2XNode)
+RCLCPP_COMPONENTS_REGISTER_NODE(v2x_trajectory::V2XNode)

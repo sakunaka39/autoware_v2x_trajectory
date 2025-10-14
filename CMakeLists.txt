@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(autoware_v2x)
+project(autoware_v2x_trajectory)
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 # Default to C99
@@ -30,7 +30,7 @@ include_directories(
   include
 )
 
-ament_auto_add_library(autoware_v2x SHARED
+ament_auto_add_library(autoware_v2x_trajectory SHARED
   src/v2x_node.cpp
   src/v2x_app.cpp
   src/application.cpp
@@ -43,13 +43,34 @@ ament_auto_add_library(autoware_v2x SHARED
   src/time_trigger.cpp
   src/positioning.cpp
   src/security.cpp
+  src/trajectory_visualizer_node.cpp
 )
 
-target_link_libraries(autoware_v2x Vanetza::vanetza ${GeographicLib_LIBRARIES} Boost::thread sqlite3)
+target_link_libraries(autoware_v2x_trajectory
+  Vanetza::vanetza
+  ${GeographicLib_LIBRARIES}
+  Boost::thread sqlite3
+)
 
-rclcpp_components_register_node(autoware_v2x
-  PLUGIN "v2x::V2XNode"
-  EXECUTABLE autoware_v2x_node
+# 新しいビジュアライザノードの実行可能ファイルを追加
+add_executable(trajectory_visualizer_node src/trajectory_visualizer_node.cpp)
+
+# 依存パッケージとのリンク設定
+ament_target_dependencies(trajectory_visualizer_node
+  rclcpp
+  autoware_auto_planning_msgs
+  visualization_msgs
+)
+
+install(TARGETS
+  autoware_v2x_trajectory
+  trajectory_visualizer_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+rclcpp_components_register_node(autoware_v2x_trajectory
+  PLUGIN "v2x_trajectory::V2XNode"
+  EXECUTABLE autoware_v2x_trajectory_node
 )
 
 if(BUILD_TESTING)
@@ -59,5 +80,4 @@ endif()
 
 ament_auto_package(INSTALL_TO_SHARE
   launch
-  config
 )
